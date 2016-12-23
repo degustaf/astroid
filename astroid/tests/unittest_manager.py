@@ -18,6 +18,7 @@ import astroid
 from astroid import exceptions
 from astroid import manager
 from astroid.tests import resources
+import pytest
 
 
 BUILTINS = six.moves.builtins.__name__
@@ -40,51 +41,50 @@ class AstroidManagerTest(resources.SysPathSetup,
     def setUp(self):
         super(AstroidManagerTest, self).setUp()
         self.manager = manager.AstroidManager()
-        self.manager.clear_cache(self._builtins) # take care of borg
+        self.manager.clear_cache(self._builtins)  # take care of borg
 
     def test_ast_from_file(self):
         filepath = unittest.__file__
         ast = self.manager.ast_from_file(filepath)
-        self.assertEqual(ast.name, 'unittest')
-        self.assertIn('unittest', self.manager.astroid_cache)
+        assert ast.name == 'unittest'
+        assert 'unittest' in self.manager.astroid_cache
 
     def test_ast_from_file_cache(self):
         filepath = unittest.__file__
         self.manager.ast_from_file(filepath)
         ast = self.manager.ast_from_file('unhandledName', 'unittest')
-        self.assertEqual(ast.name, 'unittest')
-        self.assertIn('unittest', self.manager.astroid_cache)
+        assert ast.name == 'unittest'
+        assert 'unittest' in self.manager.astroid_cache
 
     def test_ast_from_file_astro_builder(self):
         filepath = unittest.__file__
         ast = self.manager.ast_from_file(filepath, None, True, True)
-        self.assertEqual(ast.name, 'unittest')
-        self.assertIn('unittest', self.manager.astroid_cache)
+        assert ast.name == 'unittest'
+        assert 'unittest' in self.manager.astroid_cache
 
     def test_ast_from_file_name_astro_builder_exception(self):
-        self.assertRaises(exceptions.AstroidBuildingError,
-                          self.manager.ast_from_file, 'unhandledName')
+        with pytest.raises(exceptions.AstroidBuildingError):
+            self.manager.ast_from_file('unhandledName')
 
     def test_do_not_expose_main(self):
         obj = self.manager.ast_from_module_name('__main__')
-        self.assertEqual(obj.name, '__main__')
-        self.assertEqual(obj.items(), [])
+        assert obj.name == '__main__'
+        assert obj.items() == []
 
     def test_ast_from_module_name(self):
         ast = self.manager.ast_from_module_name('unittest')
-        self.assertEqual(ast.name, 'unittest')
-        self.assertIn('unittest', self.manager.astroid_cache)
+        assert ast.name == 'unittest'
+        assert 'unittest' in self.manager.astroid_cache
 
     def test_ast_from_module_name_not_python_source(self):
         ast = self.manager.ast_from_module_name('time')
-        self.assertEqual(ast.name, 'time')
-        self.assertIn('time', self.manager.astroid_cache)
-        self.assertEqual(ast.pure_python, False)
+        assert ast.name == 'time'
+        assert 'time' in self.manager.astroid_cache
+        assert not ast.pure_python
 
     def test_ast_from_module_name_astro_builder_exception(self):
-        self.assertRaises(exceptions.AstroidBuildingError,
-                          self.manager.ast_from_module_name,
-                          'unhandledModule')
+        with pytest.raises(exceptions.AstroidBuildingError):
+            self.manager.ast_from_module_name('unhandledModule')
 
     def _test_ast_from_old_namespace_package_protocol(self, root):
         origpath = sys.path[:]
@@ -94,7 +94,7 @@ class AstroidManagerTest(resources.SysPathSetup,
         try:
             for name in ('foo', 'bar', 'baz'):
                 module = self.manager.ast_from_module_name('package.' + name)
-                self.assertIsInstance(module, astroid.Module)
+                assert isinstance(module, astroid.Module)
         finally:
             sys.path = origpath
 
@@ -113,11 +113,11 @@ class AstroidManagerTest(resources.SysPathSetup,
 
         try:
             module = self.manager.ast_from_module_name('namespace_pep_420.module')
-            self.assertIsInstance(module, astroid.Module)
-            self.assertEqual(module.name, 'namespace_pep_420.module')
+            assert isinstance(module, astroid.Module)
+            assert module.name == 'namespace_pep_420.module'
             var = next(module.igetattr('var'))
-            self.assertIsInstance(var, astroid.Const)
-            self.assertEqual(var.value, 42)
+            assert isinstance(var, astroid.Const)
+            assert var.value == 42
         finally:
             for _ in range(2):
                 sys.path.pop(0)
@@ -132,12 +132,15 @@ class AstroidManagerTest(resources.SysPathSetup,
             module = self.manager.ast_from_module_name('foogle.fax')
             submodule = next(module.igetattr('a'))
             value = next(submodule.igetattr('x'))
-            self.assertIsInstance(value, astroid.Const)
-            with self.assertRaises(exceptions.AstroidImportError):
+            assert isinstance(value, astroid.Const)
+            with pytest.raises(exceptions.AstroidImportError):
                 self.manager.ast_from_module_name('foogle.moogle')
         finally:
             del pkg_resources._namespace_packages['foogle']
-            sys.modules.pop('foogle')
+            try:
+                sys.modules.pop('foogle')
+            except KeyError:
+                pass
 
     def _test_ast_from_zip(self, archive):
         origpath = sys.path[:]
@@ -146,10 +149,10 @@ class AstroidManagerTest(resources.SysPathSetup,
         sys.path.insert(0, archive_path)
         try:
             module = self.manager.ast_from_module_name('mypypa')
-            self.assertEqual(module.name, 'mypypa')
+            assert module.name == 'mypypa'
             end = os.path.join(archive, 'mypypa')
-            self.assertTrue(module.file.endswith(end),
-                            "%s doesn't endswith %s" % (module.file, end))
+            assert module.file.endswith(end), \
+                "%s doesn't endswith %s" % (module.file, end)
         finally:
             # remove the module, else after importing egg, we don't get the zip
             if 'mypypa' in self.manager.astroid_cache:
@@ -173,62 +176,61 @@ class AstroidManagerTest(resources.SysPathSetup,
         """check if zip_import_data works"""
         filepath = resources.find('data/MyPyPa-0.1.0-py2.5.zip/mypypa')
         ast = self.manager.zip_import_data(filepath)
-        self.assertEqual(ast.name, 'mypypa')
+        assert ast.name == 'mypypa'
 
     def test_zip_import_data_without_zipimport(self):
         """check if zip_import_data return None without zipimport"""
-        self.assertEqual(self.manager.zip_import_data('path'), None)
+        assert self.manager.zip_import_data('path') is None
 
     def test_file_from_module(self):
         """check if the unittest filepath is equals to the result of the method"""
-        self.assertEqual(
-            _get_file_from_object(unittest),
-            # pylint: disable=no-member; can't infer the ModuleSpec
-            self.manager.file_from_module_name('unittest', None).location)
+        # pylint: disable=no-member; can't infer the ModuleSpec
+        assert _get_file_from_object(unittest) == \
+            self.manager.file_from_module_name('unittest', None).location
 
     def test_file_from_module_name_astro_building_exception(self):
         """check if the method launch a exception with a wrong module name"""
-        self.assertRaises(exceptions.AstroidBuildingError,
-                          self.manager.file_from_module_name, 'unhandledModule', None)
+        with pytest.raises(exceptions.AstroidBuildingError):
+            self.manager.file_from_module_name('unhandledModule', None)
 
     def test_ast_from_module(self):
         ast = self.manager.ast_from_module(unittest)
-        self.assertEqual(ast.pure_python, True)
+        assert ast.pure_python
         import time
         ast = self.manager.ast_from_module(time)
-        self.assertEqual(ast.pure_python, False)
+        assert not ast.pure_python
 
     def test_ast_from_module_cache(self):
         """check if the module is in the cache manager"""
         ast = self.manager.ast_from_module(unittest)
-        self.assertEqual(ast.name, 'unittest')
-        self.assertIn('unittest', self.manager.astroid_cache)
+        assert ast.name == 'unittest'
+        assert 'unittest' in self.manager.astroid_cache
 
     def test_ast_from_class(self):
         ast = self.manager.ast_from_class(int)
-        self.assertEqual(ast.name, 'int')
-        self.assertEqual(ast.parent.frame().name, BUILTINS)
+        assert ast.name == 'int'
+        assert ast.parent.frame().name == BUILTINS
 
         ast = self.manager.ast_from_class(object)
-        self.assertEqual(ast.name, 'object')
-        self.assertEqual(ast.parent.frame().name, BUILTINS)
-        self.assertIn('__setattr__', ast)
+        assert ast.name == 'object'
+        assert ast.parent.frame().name == BUILTINS
+        assert '__setattr__' in ast
 
     def test_ast_from_class_with_module(self):
         """check if the method works with the module name"""
         ast = self.manager.ast_from_class(int, int.__module__)
-        self.assertEqual(ast.name, 'int')
-        self.assertEqual(ast.parent.frame().name, BUILTINS)
+        assert ast.name == 'int'
+        assert ast.parent.frame().name == BUILTINS
 
         ast = self.manager.ast_from_class(object, object.__module__)
-        self.assertEqual(ast.name, 'object')
-        self.assertEqual(ast.parent.frame().name, BUILTINS)
-        self.assertIn('__setattr__', ast)
+        assert ast.name == 'object'
+        assert ast.parent.frame().name == BUILTINS
+        assert '__setattr__' in ast
 
     def test_ast_from_class_attr_error(self):
         """give a wrong class at the ast_from_class method"""
-        self.assertRaises(exceptions.AstroidBuildingError,
-                          self.manager.ast_from_class, None)
+        with pytest.raises(exceptions.AstroidBuildingError):
+            self.manager.ast_from_class(None)
 
     def testFailedImportHooks(self):
         def hook(modname):
@@ -237,27 +239,21 @@ class AstroidManagerTest(resources.SysPathSetup,
             else:
                 raise exceptions.AstroidBuildingError()
 
-        with self.assertRaises(exceptions.AstroidBuildingError):
+        with pytest.raises(exceptions.AstroidBuildingError):
             self.manager.ast_from_module_name('foo.bar')
         self.manager.register_failed_import_hook(hook)
-        self.assertEqual(unittest, self.manager.ast_from_module_name('foo.bar'))
-        with self.assertRaises(exceptions.AstroidBuildingError):
+        assert unittest == self.manager.ast_from_module_name('foo.bar')
+        with pytest.raises(exceptions.AstroidBuildingError):
             self.manager.ast_from_module_name('foo.bar.baz')
         del self.manager._failed_import_hooks[0]
 
 
-class BorgAstroidManagerTC(unittest.TestCase):
+def test_borg():
+    """test that the AstroidManager is really a borg, i.e. that two different
+    instances has same cache"""
+    first_manager = manager.AstroidManager()
+    built = first_manager.ast_from_module_name(BUILTINS)
 
-    def test_borg(self):
-        """test that the AstroidManager is really a borg, i.e. that two different
-        instances has same cache"""
-        first_manager = manager.AstroidManager()
-        built = first_manager.ast_from_module_name(BUILTINS)
-
-        second_manager = manager.AstroidManager()
-        second_built = second_manager.ast_from_module_name(BUILTINS)
-        self.assertIs(built, second_built)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    second_manager = manager.AstroidManager()
+    second_built = second_manager.ast_from_module_name(BUILTINS)
+    assert built is second_built

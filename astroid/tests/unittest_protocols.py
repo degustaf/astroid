@@ -5,7 +5,6 @@
 
 
 import contextlib
-import unittest
 
 import astroid
 from astroid import extract_node
@@ -14,6 +13,7 @@ from astroid import InferenceError
 from astroid import nodes
 from astroid import util
 from astroid.node_classes import AssignName, Const, Name, Starred
+import pytest
 
 
 @contextlib.contextmanager
@@ -25,141 +25,141 @@ def _add_transform(manager, node, transform, predicate=None):
         manager.unregister_transform(node, transform, predicate)
 
 
-class ProtocolTests(unittest.TestCase):
-
-    def assertConstNodesEqual(self, nodes_list_expected, nodes_list_got):
-        self.assertEqual(len(nodes_list_expected), len(nodes_list_got))
-        for node in nodes_list_got:
-            self.assertIsInstance(node, Const)
-        for node, expected_value in zip(nodes_list_got, nodes_list_expected):
-            self.assertEqual(expected_value, node.value)
-
-    def assertNameNodesEqual(self, nodes_list_expected, nodes_list_got):
-        self.assertEqual(len(nodes_list_expected), len(nodes_list_got))
-        for node in nodes_list_got:
-            self.assertIsInstance(node, Name)
-        for node, expected_name in zip(nodes_list_got, nodes_list_expected):
-            self.assertEqual(expected_name, node.name)
-
-    def test_assigned_stmts_simple_for(self):
-        assign_stmts = extract_node("""
-        for a in (1, 2, 3):  #@
-          pass
-
-        for b in range(3): #@
-          pass
-        """)
-
-        for1_assnode = next(assign_stmts[0].nodes_of_class(AssignName))
-        assigned = list(for1_assnode.assigned_stmts())
-        self.assertConstNodesEqual([1, 2, 3], assigned)
-
-        for2_assnode = next(assign_stmts[1].nodes_of_class(AssignName))
-        self.assertRaises(InferenceError,
-                          list, for2_assnode.assigned_stmts())
-
-    @require_version(minver='3.0')
-    def test_assigned_stmts_starred_for(self):
-        assign_stmts = extract_node("""
-        for *a, b in ((1, 2, 3), (4, 5, 6, 7)): #@
-            pass
-        """)
-
-        for1_starred = next(assign_stmts.nodes_of_class(Starred))
-        assigned = next(for1_starred.assigned_stmts())
-        self.assertEqual(assigned, util.Uninferable)
-
-    def _get_starred_stmts(self, code):
-        assign_stmt = extract_node("{} #@".format(code))
-        starred = next(assign_stmt.nodes_of_class(Starred))
-        return next(starred.assigned_stmts())
-
-    def _helper_starred_expected_const(self, code, expected):
-        stmts = self._get_starred_stmts(code)
-        self.assertIsInstance(stmts, nodes.List)
-        stmts = stmts.elts
-        self.assertConstNodesEqual(expected, stmts)
-
-    def _helper_starred_expected(self, code, expected):
-        stmts = self._get_starred_stmts(code)
-        self.assertEqual(expected, stmts)
-
-    def _helper_starred_inference_error(self, code):
-        assign_stmt = extract_node("{} #@".format(code))
-        starred = next(assign_stmt.nodes_of_class(Starred))
-        self.assertRaises(InferenceError, list, starred.assigned_stmts())
-
-    @require_version(minver='3.0')
-    def test_assigned_stmts_starred_assnames(self):
-        self._helper_starred_expected_const(
-            "a, *b = (1, 2, 3, 4) #@", [2, 3, 4])
-        self._helper_starred_expected_const(
-            "*a, b = (1, 2, 3) #@", [1, 2])
-        self._helper_starred_expected_const(
-            "a, *b, c = (1, 2, 3, 4, 5) #@",
-            [2, 3, 4])
-        self._helper_starred_expected_const(
-            "a, *b = (1, 2) #@", [2])
-        self._helper_starred_expected_const(
-            "*b, a = (1, 2) #@", [1])
-        self._helper_starred_expected_const(
-            "[*b] = (1, 2) #@", [1, 2])
-
-    @require_version(minver='3.0')
-    def test_assigned_stmts_starred_yes(self):
-        # Not something iterable and known
-        self._helper_starred_expected("a, *b = range(3) #@", util.Uninferable)
-        # Not something inferrable
-        self._helper_starred_expected("a, *b = balou() #@", util.Uninferable)
-        # In function, unknown.
-        self._helper_starred_expected("""
-        def test(arg):
-            head, *tail = arg #@""", util.Uninferable)
-        # These cases aren't worth supporting.
-        self._helper_starred_expected(
-            "a, (*b, c), d = (1, (2, 3, 4), 5) #@", util.Uninferable)
-
-    @require_version(minver='3.0')
-    def test_assign_stmts_starred_fails(self):
-        # Too many starred
-        self._helper_starred_inference_error("a, *b, *c = (1, 2, 3) #@")
-        # Too many lhs values
-        self._helper_starred_inference_error("a, *b, c = (1, 2) #@")
-        # This could be solved properly, but it complicates needlessly the
-        # code for assigned_stmts, without offering real benefit.
-        self._helper_starred_inference_error(
-            "(*a, b), (c, *d) = (1, 2, 3), (4, 5, 6) #@")
-
-    def test_assigned_stmts_assignments(self):
-        assign_stmts = extract_node("""
-        c = a #@
-
-        d, e = b, c #@
-        """)
-
-        simple_assnode = next(assign_stmts[0].nodes_of_class(AssignName))
-        assigned = list(simple_assnode.assigned_stmts())
-        self.assertNameNodesEqual(['a'], assigned)
-
-        assnames = assign_stmts[1].nodes_of_class(AssignName)
-        simple_mul_assnode_1 = next(assnames)
-        assigned = list(simple_mul_assnode_1.assigned_stmts())
-        self.assertNameNodesEqual(['b'], assigned)
-        simple_mul_assnode_2 = next(assnames)
-        assigned = list(simple_mul_assnode_2.assigned_stmts())
-        self.assertNameNodesEqual(['c'], assigned)
-
-    def test_sequence_assigned_stmts_not_accepting_empty_node(self):
-        def transform(node):
-            node.root().locals['__all__'] = [node.value]
-
-        manager = astroid.MANAGER
-        with _add_transform(manager, astroid.Assign, transform):
-            module = astroid.parse('''
-            __all__ = ['a']
-            ''')
-            module.wildcard_import_names()
+def assertConstNodesEqual(nodes_list_expected, nodes_list_got):
+    assert len(nodes_list_expected) == len(nodes_list_got)
+    for node in nodes_list_got:
+        assert isinstance(node, Const)
+    for node, expected_value in zip(nodes_list_got, nodes_list_expected):
+        assert expected_value == node.value
 
 
-if __name__ == '__main__':
-    unittest.main()
+def assertNameNodesEqual(nodes_list_expected, nodes_list_got):
+    assert len(nodes_list_expected) == len(nodes_list_got)
+    for node in nodes_list_got:
+        assert isinstance(node, Name)
+    for node, expected_name in zip(nodes_list_got, nodes_list_expected):
+        assert expected_name == node.name
+
+
+def test_assigned_stmts_simple_for():
+    assign_stmts = extract_node("""
+    for a in (1, 2, 3):  #@
+      pass
+
+    for b in range(3): #@
+      pass
+    """)
+
+    for1_assnode = next(assign_stmts[0].nodes_of_class(AssignName))
+    assigned = list(for1_assnode.assigned_stmts())
+    assertConstNodesEqual([1, 2, 3], assigned)
+
+    for2_assnode = next(assign_stmts[1].nodes_of_class(AssignName))
+    with pytest.raises(InferenceError):
+        list(for2_assnode.assigned_stmts())
+
+
+@require_version(minver='3.0')
+def test_assigned_stmts_starred_for():
+    assign_stmts = extract_node("""
+    for *a, b in ((1, 2, 3), (4, 5, 6, 7)): #@
+        pass
+    """)
+
+    for1_starred = next(assign_stmts.nodes_of_class(Starred))
+    assigned = next(for1_starred.assigned_stmts())
+    assert assigned == util.Uninferable
+
+
+def _get_starred_stmts(code):
+    assign_stmt = extract_node("{} #@".format(code))
+    starred = next(assign_stmt.nodes_of_class(Starred))
+    return next(starred.assigned_stmts())
+
+
+def _helper_starred_expected_const(code, expected):
+    stmts = _get_starred_stmts(code)
+    assert isinstance(stmts, nodes.List)
+    stmts = stmts.elts
+    assertConstNodesEqual(expected, stmts)
+
+
+def _helper_starred_expected(code, expected):
+    stmts = _get_starred_stmts(code)
+    assert expected == stmts
+
+
+def _helper_starred_inference_error(code):
+    assign_stmt = extract_node("{} #@".format(code))
+    starred = next(assign_stmt.nodes_of_class(Starred))
+    with pytest.raises(InferenceError):
+        list(starred.assigned_stmts())
+
+
+@require_version(minver='3.0')
+def test_assigned_stmts_starred_assnames():
+    _helper_starred_expected_const("a, *b = (1, 2, 3, 4) #@", [2, 3, 4])
+    _helper_starred_expected_const("*a, b = (1, 2, 3) #@", [1, 2])
+    _helper_starred_expected_const("a, *b, c = (1, 2, 3, 4, 5) #@", [2, 3, 4])
+    _helper_starred_expected_const("a, *b = (1, 2) #@", [2])
+    _helper_starred_expected_const("*b, a = (1, 2) #@", [1])
+    _helper_starred_expected_const("[*b] = (1, 2) #@", [1, 2])
+
+
+@require_version(minver='3.0')
+def test_assigned_stmts_starred_yes():
+    # Not something iterable and known
+    _helper_starred_expected("a, *b = range(3) #@", util.Uninferable)
+    # Not something inferrable
+    _helper_starred_expected("a, *b = balou() #@", util.Uninferable)
+    # In function, unknown.
+    _helper_starred_expected("""
+    def test(arg):
+        head, *tail = arg #@""", util.Uninferable)
+    # These cases aren't worth supporting.
+    _helper_starred_expected("a, (*b, c), d = (1, (2, 3, 4), 5) #@",
+                             util.Uninferable)
+
+
+@require_version(minver='3.0')
+def test_assign_stmts_starred_fails():
+    # Too many starred
+    _helper_starred_inference_error("a, *b, *c = (1, 2, 3) #@")
+    # Too many lhs values
+    _helper_starred_inference_error("a, *b, c = (1, 2) #@")
+    # This could be solved properly, but it complicates needlessly the
+    # code for assigned_stmts, without offering real benefit.
+    _helper_starred_inference_error(
+        "(*a, b), (c, *d) = (1, 2, 3), (4, 5, 6) #@")
+
+
+def test_assigned_stmts_assignments():
+    assign_stmts = extract_node("""
+    c = a #@
+
+    d, e = b, c #@
+    """)
+
+    simple_assnode = next(assign_stmts[0].nodes_of_class(AssignName))
+    assigned = list(simple_assnode.assigned_stmts())
+    assertNameNodesEqual(['a'], assigned)
+
+    assnames = assign_stmts[1].nodes_of_class(AssignName)
+    simple_mul_assnode_1 = next(assnames)
+    assigned = list(simple_mul_assnode_1.assigned_stmts())
+    assertNameNodesEqual(['b'], assigned)
+    simple_mul_assnode_2 = next(assnames)
+    assigned = list(simple_mul_assnode_2.assigned_stmts())
+    assertNameNodesEqual(['c'], assigned)
+
+
+def test_sequence_assigned_stmts_not_accepting_empty_node():
+    def transform(node):
+        node.root().locals['__all__'] = [node.value]
+
+    manager = astroid.MANAGER
+    with _add_transform(manager, astroid.Assign, transform):
+        module = astroid.parse('''
+        __all__ = ['a']
+        ''')
+        module.wildcard_import_names()
