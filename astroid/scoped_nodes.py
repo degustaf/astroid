@@ -1268,6 +1268,7 @@ class FunctionDef(mixins.MultiLineBlockMixin, node_classes.Statement, Lambda):
 
     _astroid_fields = ("decorators", "args", "returns", "body")
     _multi_line_block_fields = ("body",)
+    _generator_cls = bases.Generator
     returns = None
     decorators = None
     """The decorators that are applied to this method or function.
@@ -1339,6 +1340,8 @@ class FunctionDef(mixins.MultiLineBlockMixin, node_classes.Statement, Lambda):
         """
 
         self.instance_attrs = {}
+        self._return_nodes = None
+
         super(FunctionDef, self).__init__(lineno, col_offset, parent)
         if parent:
             frame = parent.frame()
@@ -1613,6 +1616,7 @@ class FunctionDef(mixins.MultiLineBlockMixin, node_classes.Statement, Lambda):
         if pass_is_abstract:
             return True
 
+    @decorators_mod.cached
     def is_generator(self):
         """Check if this is a generator function.
 
@@ -1628,11 +1632,7 @@ class FunctionDef(mixins.MultiLineBlockMixin, node_classes.Statement, Lambda):
         :rtype: iterable(NodeNG or Uninferable) or None
         """
         if self.is_generator():
-            if isinstance(self, AsyncFunctionDef):
-                generator_cls = bases.AsyncGenerator
-            else:
-                generator_cls = bases.Generator
-            result = generator_cls(self)
+            result = self._generator_cls(self)
             yield result
             return
         # This is really a gigantic hack to work around metaclass generators
@@ -1660,10 +1660,10 @@ class FunctionDef(mixins.MultiLineBlockMixin, node_classes.Statement, Lambda):
                 )
                 yield new_class
                 return
-        returns = self._get_return_nodes_skip_functions()
+        if self._return_nodes is None:
+            self._return_nodes = list(self._get_return_nodes_skip_functions())
 
-        first_return = next(returns, None)
-        if not first_return:
+        if len(self._return_nodes) == 0:
             if self.body and isinstance(self.body[-1], node_classes.Assert):
                 yield node_classes.Const(None)
                 return
@@ -1672,7 +1672,7 @@ class FunctionDef(mixins.MultiLineBlockMixin, node_classes.Statement, Lambda):
                 "The function does not have any return statements"
             )
 
-        for returnnode in itertools.chain((first_return,), returns):
+        for returnnode in self._return_nodes:
             if returnnode.value is None:
                 yield node_classes.Const(None)
             else:
@@ -1718,6 +1718,8 @@ class AsyncFunctionDef(FunctionDef):
     >>> node.body[0]
     <AsyncFor l.3 at 0x7f23b2e417b8>
     """
+
+    _generator_cls = bases.AsyncGenerator
 
 
 def _rec_get_names(args, names=None):
