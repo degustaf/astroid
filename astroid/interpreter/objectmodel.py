@@ -449,40 +449,6 @@ class ClassModel(ObjectModel):
         return helpers.object_type(self._instance)
 
     @property
-    def attr___subclasses__(self):
-        """Get the subclasses of the underlying class
-
-        This looks only in the current module for retrieving the subclasses,
-        thus it might miss a couple of them.
-        """
-        from astroid import bases
-        from astroid import scoped_nodes
-
-        if not self._instance.newstyle:
-            raise exceptions.AttributeInferenceError(
-                target=self._instance, attribute="__subclasses__"
-            )
-
-        qname = self._instance.qname()
-        root = self._instance.root()
-        classes = [
-            cls
-            for cls in root.nodes_of_class(scoped_nodes.ClassDef)
-            if cls != self._instance and cls.is_subtype_of(qname)
-        ]
-
-        obj = node_classes.List(parent=self._instance)
-        obj.postinit(classes)
-
-        class SubclassesBoundMethod(bases.BoundMethod):
-            def infer_call_result(self, caller, context=None):
-                yield obj
-
-        implicit_metaclass = self._instance.implicit_metaclass()
-        subclasses_method = implicit_metaclass.locals["__subclasses__"][0]
-        return SubclassesBoundMethod(proxy=subclasses_method, bound=implicit_metaclass)
-
-    @property
     def attr___dict__(self):
         return node_classes.Dict(parent=self._instance)
 
